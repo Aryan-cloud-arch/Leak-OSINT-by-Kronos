@@ -38,7 +38,6 @@ missing = []
 for var in required_vars:
     val = os.environ.get(var)
     if val:
-        # Mask sensitive values
         masked = val[:5] + "..." + val[-3:] if len(val) > 10 else "***"
         print(f"      ✅ {var} = {masked}")
     else:
@@ -56,7 +55,7 @@ print()
 print("[3/8] 📦 Importing telebot...")
 try:
     import telebot
-    print(f"      ✅ telebot version: {telebot.__version__}")
+    print("      ✅ telebot imported successfully")
 except ImportError as e:
     print(f"      ❌ Failed: {e}")
     print("      Run: pip install pyTelegramBotAPI")
@@ -81,10 +80,9 @@ try:
     supabase_key = os.environ.get('SUPABASE_KEY')
     supabase: Client = create_client(supabase_url, supabase_key)
     
-    # Test query
     result = supabase.table('users').select('user_id').limit(1).execute()
     print("      ✅ Supabase connected!")
-    print(f"      📊 Users table accessible")
+    print("      📊 Users table accessible")
 except Exception as e:
     print(f"      ❌ Supabase error: {e}")
     print()
@@ -102,7 +100,7 @@ try:
     bot_token = os.environ.get('BOT_TOKEN')
     bot = telebot.TeleBot(bot_token)
     bot_info = bot.get_me()
-    print(f"      ✅ Bot connected!")
+    print("      ✅ Bot connected!")
     print(f"      📛 Bot Name: {bot_info.first_name}")
     print(f"      🆔 Bot Username: @{bot_info.username}")
     print(f"      🔢 Bot ID: {bot_info.id}")
@@ -133,13 +131,11 @@ except Exception as e:
 print()
 print("[8/8] 🚀 Initializing bot...")
 try:
-    # Initialize bot
     if hasattr(bot_module, 'init_bot'):
         print("      🔧 Calling init_bot()...")
         bot_module.init_bot()
         print("      ✅ init_bot() done")
     
-    # Initialize channels
     if hasattr(bot_module, 'init_channels'):
         print("      🔧 Calling init_channels()...")
         bot_module.init_channels()
@@ -150,7 +146,6 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
-# Start polling
 print()
 print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 print("        ✅ ALL CHECKS PASSED!")
