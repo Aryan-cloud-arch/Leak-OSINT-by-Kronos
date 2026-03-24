@@ -230,12 +230,13 @@ def db_get_channels():
         print(f"DB Error (get_channels): {e}")
         return []
 
-def db_add_channel(channel_id: str, channel_title: str, channel_type: str = "public"):
+def db_add_channel(channel_id: str, channel_title: str, channel_username: str = None, channel_type: str = "public"):
     """Add a required channel"""
     try:
         data = {
             "channel_id": channel_id,
             "channel_name": channel_title,
+            "channel_username": channel_username,
             "channel_type": channel_type,
             "is_active": True,
             "added_at": datetime.now().isoformat(),
@@ -327,7 +328,8 @@ def init_channels():
             try:
                 chat = bot.get_chat(channel)
                 ch_type = chat.type or "public"
-                db_add_channel(str(chat.id), chat.title or channel, ch_type)
+                username = chat.username if hasattr(chat, 'username') else None
+                db_add_channel(str(chat.id), chat.title or channel, username, ch_type)
                 print(f"{UI.SUCCESS} Added initial channel: {chat.title or channel}")
             except Exception as e:
                 print(f"{UI.WARNING} Could not add channel {channel}: {e}")
@@ -967,7 +969,8 @@ then try again.
             pass
         
         ch_type = channel_type or "public"
-        db_add_channel(channel_id, channel_title, ch_type)
+        username = chat.username if hasattr(chat, 'username') else None
+        db_add_channel(channel_id, channel_title, username, ch_type)
         
         bot.reply_to(message, f"""
 {UI.HEAVY_LINE}
