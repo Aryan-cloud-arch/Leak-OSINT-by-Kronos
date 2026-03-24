@@ -571,13 +571,42 @@ def generate_report(query: str, query_id: int) -> list:
     
     try:
         response = requests.post(API_URL, json=data, timeout=30).json()
+        print(f"API Response: {response}")
     except Exception as e:
-        print(f"API Error: {e}")
+        print(f"API Request Error: {e}")
         return None
     
+    # Handle all possible API errors
     if "Error code" in response:
         print(f"API Error: {response['Error code']}")
         return None
+    
+    if "Error" in response:
+        print(f"API Error: {response['Error']}")
+        return None
+    
+    # Check if List exists in response
+    if "List" not in response:
+        print(f"API Error: No 'List' in response. Response: {response}")
+        return None
+    
+    # Check if results are empty
+    if not response["List"]:
+        no_results_msg = f"""
+{UI.HEAVY_LINE}
+        {UI.SEARCH} ɴᴏ ʀᴇꜱᴜʟᴛꜱ
+{UI.HEAVY_LINE}
+
+{UI.WARNING} ɴᴏ ᴅᴀᴛᴀ ꜰᴏᴜɴᴅ ꜰᴏʀ ᴛʜɪꜱ ǫᴜᴇʀʏ.
+
+{UI.BULLET} ᴛʀʏ ᴀ ᴅɪꜰꜰᴇʀᴇɴᴛ ꜱᴇᴀʀᴄʜ ᴛᴇʀᴍ
+{UI.BULLET} ᴄʜᴇᴄᴋ ꜱᴘᴇʟʟɪɴɢ
+{UI.BULLET} ᴜꜱᴇ ꜰᴜʟʟ ᴇᴍᴀɪʟ ᴏʀ ᴘʜᴏɴᴇ
+
+{UI.HEAVY_LINE}
+"""
+        cash_reports[str(query_id)] = [no_results_msg]
+        return cash_reports[str(query_id)], 0
     
     cash_reports[str(query_id)] = []
     total_results = 0
