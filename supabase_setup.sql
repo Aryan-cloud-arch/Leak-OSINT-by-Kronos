@@ -189,25 +189,15 @@ ORDER BY u.search_count DESC
 LIMIT 50;
 
 -- ============================================
--- 6. ENABLE ROW LEVEL SECURITY (RLS)
+-- 6. DISABLE ROW LEVEL SECURITY (Not needed for bot)
 -- ============================================
 
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE required_channels ENABLE ROW LEVEL SECURITY;
-ALTER TABLE search_logs ENABLE ROW LEVEL SECURITY;
+-- Note: RLS is disabled because the bot uses service role key
+-- which bypasses RLS anyway. This prevents permission issues.
 
--- Policy: Allow service role full access
-CREATE POLICY "Service role has full access to users" 
-    ON users FOR ALL 
-    USING (auth.role() = 'service_role');
-
-CREATE POLICY "Service role has full access to channels" 
-    ON required_channels FOR ALL 
-    USING (auth.role() = 'service_role');
-
-CREATE POLICY "Service role has full access to search_logs" 
-    ON search_logs FOR ALL 
-    USING (auth.role() = 'service_role');
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE required_channels DISABLE ROW LEVEL SECURITY;
+ALTER TABLE search_logs DISABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- 7. UTILITY FUNCTIONS
@@ -266,18 +256,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================
--- 8. GRANT PERMISSIONS (if using service role)
+-- 8. GRANT PERMISSIONS
 -- ============================================
 
-GRANT ALL ON users TO service_role;
-GRANT ALL ON required_channels TO service_role;
-GRANT ALL ON search_logs TO service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
-GRANT SELECT ON active_users TO service_role;
-GRANT SELECT ON channel_stats TO service_role;
-GRANT SELECT ON user_stats TO service_role;
-GRANT SELECT ON recent_searches TO service_role;
-GRANT SELECT ON top_searchers TO service_role;
+-- Permissions are automatically granted when using Supabase service role key
+-- No additional grants needed
 
 -- ============================================
 -- 9. SUCCESS MESSAGE
