@@ -23,8 +23,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 # LeakOSINT API Config
 API_URL = "https://leakosintapi.com/"
-LANG = os.environ.get("LANG", "en")
-LIMIT = int(os.environ.get("LIMIT", "300"))
+LANG = os.environ.get("API_LANG", "en")
+LIMIT = int(os.environ.get("API_LIMIT", "300"))
 
 # Initial channels from env (comma-separated)
 INITIAL_CHANNELS = os.environ.get("REQUIRED_CHANNELS", "").split(",")
@@ -180,10 +180,10 @@ def db_add_user(user_id: int, username: str = None, first_name: str = None):
     try:
         data = {
             "user_id": user_id,
-            "username": username,
-            "first_name": first_name,
-            "is_verified": False,
-            "last_seen": datetime.now().isoformat()
+            "username": username or "",
+            "first_name": first_name or "Unknown",
+            "is_member": False,
+            "last_active": datetime.now().isoformat()
         }
         supabase.table("users").upsert(data, on_conflict="user_id").execute()
         return True
@@ -204,8 +204,8 @@ def db_set_verified(user_id: int, verified: bool):
     """Set user verification status"""
     try:
         supabase.table("users").update({
-            "is_verified": verified,
-            "last_seen": datetime.now().isoformat()
+            "is_member": verified,
+            "last_active": datetime.now().isoformat()
         }).eq("user_id", user_id).execute()
         return True
     except Exception as e:
@@ -224,7 +224,7 @@ def db_get_all_users():
 def db_get_channels():
     """Get all required channels"""
     try:
-        result = supabase.table("channels").select("*").eq("is_active", True).execute()
+        result = supabase.table("required_channels").select("*").eq("is_active", True).execute()
         return result.data
     except Exception as e:
         print(f"DB Error (get_channels): {e}")
@@ -235,12 +235,13 @@ def db_add_channel(channel_id: str, channel_title: str, channel_type: str = "pub
     try:
         data = {
             "channel_id": channel_id,
-            "channel_title": channel_title,
+            "channel_name": channel_title,
             "channel_type": channel_type,
             "is_active": True,
-            "added_at": datetime.now().isoformat()
+            "added_at": datetime.now().isoformat(),
+            "added_by": OWNER_ID
         }
-        supabase.table("channels").upsert(data, on_conflict="channel_id").execute()
+        supabase.table("required_channels").upsert(data, on_conflict="channel_id").execute()
         return True
     except Exception as e:
         print(f"DB Error (add_channel): {e}")
@@ -249,7 +250,7 @@ def db_add_channel(channel_id: str, channel_title: str, channel_type: str = "pub
 def db_remove_channel(channel_id: str):
     """Remove a channel"""
     try:
-        supabase.table("channels").delete().eq("channel_id", channel_id).execute()
+        supabase.table("required_channels").delete().eq("channel_id", channel_id).execute()
         return True
     except Exception as e:
         print(f"DB Error (remove_channel): {e}")
@@ -259,8 +260,8 @@ def db_get_stats():
     """Get bot statistics"""
     try:
         users = supabase.table("users").select("*", count="exact").execute()
-        verified = supabase.table("users").select("*", count="exact").eq("is_verified", True).execute()
-        channels = supabase.table("channels").select("*", count="exact").eq("is_active", True).execute()
+        verified = supabase.table("users").select("*", count="exact").eq("is_member", True).execute()
+        channels = supabase.table("required_channels").select("*", count="exact").eq("is_active", True).execute()
         
         return {
             "total_users": users.count or 0,
@@ -277,7 +278,8 @@ def db_log_search(user_id: int, query: str, results_count: int):
         data = {
             "user_id": user_id,
             "query": query[:500],
-            "results_count": results_count,
+            "result_count": results_count,
+            "results_found": results_count > 0,
             "searched_at": datetime.now().isoformat()
         }
         supabase.table("search_logs").insert(data).execute()
@@ -324,7 +326,8 @@ def init_channels():
         if channel:
             try:
                 chat = bot.get_chat(channel)
-                db_add_channel(str(chat.id), chat.title or channel, "public")
+                ch_type = chat.type or "public"
+                db_add_channel(str(chat.id), chat.title or channel, ch_type)
                 print(f"{UI.SUCCESS} Added initial channel: {chat.title or channel}")
             except Exception as e:
                 print(f"{UI.WARNING} Could not add channel {channel}: {e}")
@@ -345,6 +348,8 @@ def check_user_membership(user_id: int) -> dict:
     
     for channel in channels:
         channel_id = channel["channel_id"]
+        channel_title = channel.get("channel_name") or channel.get("channel_title") or "Unknown"
+        channel_type = channel.get("channel_type") or "public"
         try:
             member = bot.get_chat_member(channel_id, user_id)
             status = member.status
@@ -357,21 +362,21 @@ def check_user_membership(user_id: int) -> dict:
             
             channel_info.append({
                 "id": channel_id,
-                "title": channel["channel_title"],
-                "type": channel["channel_type"],
+                "title": channel_title,
+                "type": channel_type,
                 "is_member": is_member
             })
             
             if not is_member:
-                missing.append(channel)
+                missing.append({"channel_id": channel_id, "channel_title": channel_title, "channel_type": channel_type})
                 
         except Exception as e:
             print(f"Membership check error for {channel_id}: {e}")
-            missing.append(channel)
+            missing.append({"channel_id": channel_id, "channel_title": channel_title, "channel_type": channel_type})
             channel_info.append({
                 "id": channel_id,
-                "title": channel["channel_title"],
-                "type": channel["channel_type"],
+                "title": channel_title,
+                "type": channel_type,
                 "is_member": False
             })
     
@@ -389,8 +394,8 @@ def create_join_markup(channels: list, include_verify: bool = True) -> InlineKey
     color_emojis = ["🔵", "🟢", "🟣", "🟠", "🔴", "🟡", "⚪", "🟤"]
     
     for idx, channel in enumerate(channels):
-        channel_id = channel["channel_id"]
-        title = channel["channel_title"]
+        channel_id = channel.get("channel_id", "")
+        title = channel.get("channel_title") or channel.get("channel_name") or "Channel"
         emoji = color_emojis[idx % len(color_emojis)]
         
         if channel_id.startswith("-100"):
@@ -682,7 +687,7 @@ Tag me: <code>@{BOT_USERNAME} query</code>
 
 def msg_join_required(channels: list) -> str:
     color_dots = ["🔵", "🟢", "🟣", "🟠", "🔴", "🟡"]
-    channel_list = "\n".join([f"  {color_dots[idx % len(color_dots)]} {ch['channel_title']}" for idx, ch in enumerate(channels)])
+    channel_list = "\n".join([f"  {color_dots[idx % len(color_dots)]} {ch.get('channel_title') or ch.get('channel_name') or 'Channel'}" for idx, ch in enumerate(channels)])
     
     return f"""
 {UI.HEAVY_LINE}
@@ -722,7 +727,7 @@ def msg_verified_success() -> str:
 """
 
 def msg_verification_failed(missing: list) -> str:
-    channel_list = "\n".join([f"  {UI.ERROR} {ch['channel_title']}" for ch in missing])
+    channel_list = "\n".join([f"  {UI.ERROR} {ch.get('channel_title') or ch.get('channel_name') or 'Channel'}" for ch in missing])
     
     return f"""
 {UI.HEAVY_LINE}
@@ -793,10 +798,12 @@ def msg_channels_list(channels: list) -> str:
     channel_list = ""
     for idx, ch in enumerate(channels):
         emoji = color_dots[idx % len(color_dots)]
+        title = ch.get('channel_name') or ch.get('channel_title') or 'Channel'
+        ch_type = ch.get('channel_type') or 'public'
         channel_list += f"""
-  {emoji} <b>{ch['channel_title']}</b>
+  {emoji} <b>{title}</b>
      ɪᴅ: <code>{ch['channel_id']}</code>
-     ᴛʏᴘᴇ: {ch['channel_type']}
+     ᴛʏᴘᴇ: {ch_type}
 """
     
     return f"""
@@ -930,7 +937,8 @@ then try again.
         except:
             pass
         
-        db_add_channel(channel_id, channel_title, channel_type)
+        ch_type = channel_type or "public"
+        db_add_channel(channel_id, channel_title, ch_type)
         
         bot.reply_to(message, f"""
 {UI.HEAVY_LINE}
@@ -939,7 +947,7 @@ then try again.
 
 🔹 ᴛɪᴛʟᴇ: <b>{channel_title}</b>
 🔹 ɪᴅ: <code>{channel_id}</code>
-🔹 ᴛʏᴘᴇ: {channel_type}
+🔹 ᴛʏᴘᴇ: {ch_type}
 
 {UI.HEAVY_LINE}
 """, parse_mode="HTML")
@@ -975,8 +983,9 @@ def cmd_remove_channel(message):
     for idx, ch in enumerate(channels):
         color_emojis = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣"]
         emoji = color_emojis[idx % len(color_emojis)]
+        title = ch.get('channel_name') or ch.get('channel_title') or 'Channel'
         markup.add(InlineKeyboardButton(
-            f"{emoji} ʀᴇᴍᴏᴠᴇ {ch['channel_title']}",
+            f"{emoji} ʀᴇᴍᴏᴠᴇ {title}",
             callback_data=f"rmch_{ch['channel_id']}"
         ))
     markup.add(InlineKeyboardButton("✖️ ᴄᴀɴᴄᴇʟ", callback_data="cancel_remove"))
@@ -1023,7 +1032,7 @@ def cmd_users(message):
 """
     
     for idx, u in enumerate(users[:50], 1):  # Limit to 50
-        status = UI.SUCCESS if u.get("is_verified") else UI.ERROR
+        status = UI.SUCCESS if u.get("is_member") else UI.ERROR
         username = f"@{u['username']}" if u.get('username') else "No username"
         text += f"\n{idx}. {status} <code>{u['user_id']}</code>\n   {username}"
     
